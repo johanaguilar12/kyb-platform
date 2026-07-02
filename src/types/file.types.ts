@@ -16,6 +16,10 @@ export interface File {
   satListChecks?: SATListCheck[];
   riskScore?: RiskScore;
   auditLogs?: AuditLog[];
+  powerOfAttorneyRequired?: boolean | null;
+  powerOfAttorneyReason?: string | null;
+  controllingPartyRequired?: boolean | null;
+  controllingPartyReason?: string | null;
 }
 
 export interface CreateFileData {

@@ -186,6 +186,12 @@ export function calculateRiskScore(
     'tax_status_certificate',
     'manifestation_under_protest',
   ];
+  if (file.powerOfAttorneyRequired === true) {
+    requiredDocs.push('power_of_attorney');
+  }
+  if (file.controllingPartyRequired === true) {
+    requiredDocs.push('controlling_party');
+  }
   const missingRequired = requiredDocs.filter(
     type => !documents.some(d => d.type === type && d.isActive)
   );

@@ -143,6 +143,36 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 2. Fetch existing active documents for this file
+    const existingDocs = await prisma.document.findMany({
+      where: {
+        fileId: fileId,
+        isActive: true,
+      },
+      select: {
+        type: true,
+        aiExtractedData: true,
+      },
+    });
+
+    // 3. Run reconciliation checks comparing new document vs existing data and file data
+    const { reconcileDocumentUpload } = await import('@/lib/document-reconciler');
+    const reconciliation = reconcileDocumentUpload({
+      newDocType: type,
+      newDocData: aiExtractedData,
+      fileRfc: file.rfc,
+      fileLegalName: file.legalName,
+      existingDocs,
+    });
+
+    // 4. If critical mismatch (RFC, low legal name similarity): REJECT upload
+    if (!reconciliation.isValid) {
+      return NextResponse.json(
+        { success: false, error: reconciliation.criticalError || 'Document reconciliation failed.' },
+        { status: 400 }
+      );
+    }
+
     // Compress PDF before upload if it's a buffer
     let finalUploadBuffer = buffer;
     let compressedSize: number | null = null;
@@ -190,7 +220,7 @@ export async function POST(request: NextRequest) {
     // Resolve dates from extracted data
     const resolvedIssueDate = aiExtractedData.issueDate || aiExtractedData.incorporationDate;
 
-    // Create the new document with automatic confirmation
+    // Create the new document with automatic confirmation and reconciliation status
     const document = await prisma.document.create({
       data: {
         fileId: fileId,
@@ -204,10 +234,21 @@ export async function POST(request: NextRequest) {
         fileSize: compressedSize,
         confirmationStatus: 'confirmed',
         confirmedAt: new Date(),
+        reconciliationStatus: reconciliation.warnings.length > 0 ? 'warning' : 'matched',
+        reconciliationErrors: reconciliation.errors,
+        reconciliationWarnings: reconciliation.warnings,
         isActive: true,
         version: nextVersion,
       },
     });
+
+    // Run conditional document visibility detections (PoA / Controlling Party)
+    const { runConditionalDetections } = await import('@/lib/conditional-detection');
+    await runConditionalDetections(fileId);
+
+    // Run auto-status checks (expiration, CSF month, SAT recency)
+    const { runMasterStatusCheck } = await import('@/lib/status-transitions');
+    await runMasterStatusCheck(fileId);
 
     // Log the upload in Audit Log
     await logAuditAction({

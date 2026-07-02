@@ -8,11 +8,13 @@ vi.mock('@/lib/prisma', () => {
       update: vi.fn(),
       findUnique: vi.fn(),
       findFirst: vi.fn(),
+      findMany: vi.fn().mockResolvedValue([]),
       updateMany: vi.fn(),
       delete: vi.fn(),
     },
     file: {
       findUnique: vi.fn(),
+      update: vi.fn().mockResolvedValue({}),
     },
     auditLog: {
       create: vi.fn(),
@@ -68,7 +70,7 @@ describe('Document Vault Confirmation Flow Tests', () => {
       body: formData,
     });
 
-    mockPrisma.file.findUnique.mockResolvedValue({ id: 'file-123', rfc: 'ABC010101ABC' });
+    mockPrisma.file.findUnique.mockResolvedValue({ id: 'file-123', rfc: 'ABC010101ABC', legalName: 'TEST SA DE CV' });
     mockPrisma.document.findFirst.mockResolvedValue(null); // version 1
     mockPrisma.document.create.mockImplementation(({ data }) => ({
       id: 'doc-999',

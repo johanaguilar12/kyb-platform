@@ -1,4 +1,6 @@
 import React from 'react';
+import { getDocumentLabel, documentTypeLabels } from '@/lib/utils/document-labels';
+import { getErrorMessage } from '@/lib/utils/error-messages';
 
 interface RiskFactor {
   code: string;
@@ -20,6 +22,30 @@ interface RiskScoreCardProps {
   score?: RiskScore;
   onRecalculate?: () => void;
   isLoading?: boolean;
+}
+
+export function replaceTechnicalNames(text: string): string {
+  if (!text) return '';
+  let cleanText = text;
+  Object.keys(documentTypeLabels).forEach((key) => {
+    const regex = new RegExp(key, 'g');
+    cleanText = cleanText.replace(regex, getDocumentLabel(key));
+  });
+  return cleanText;
+}
+
+export function formatFactorCode(code: string): string {
+  return getErrorMessage(code);
+}
+
+export function getFriendlyAction(action: string): string {
+  if (action.includes('Block approval immediately') || action.toUpperCase().includes('BLOCK')) {
+    return 'Block approval. Escalate to compliance officer for review.';
+  }
+  if (action.includes('manual review') || action.toUpperCase().includes('REVIEW')) {
+    return 'Perform manual review of the flagged items.';
+  }
+  return 'Proceed with standard approval.';
 }
 
 export function RiskScoreCard({ score, onRecalculate, isLoading }: RiskScoreCardProps) {
@@ -104,11 +130,15 @@ export function RiskScoreCard({ score, onRecalculate, isLoading }: RiskScoreCard
         <div className="md:col-span-2 space-y-4">
           <div>
             <h4 className="font-bold text-xs text-sat-muted uppercase tracking-wider">COMPLIANCE DIAGNOSIS</h4>
-            <p className="text-sm text-sat-dark mt-1 leading-relaxed font-medium">{score.explanation}</p>
+            <p className="text-sm text-sat-dark mt-1 leading-relaxed font-medium">
+              {replaceTechnicalNames(score.explanation)}
+            </p>
           </div>
           <div>
             <h4 className="font-bold text-xs text-sat-muted uppercase tracking-wider">MANDATORY COMPLIANCE ACTION</h4>
-            <p className="text-sm font-bold text-sat-secondary mt-1 uppercase tracking-wide">{score.suggestedAction}</p>
+            <p className="text-sm font-bold text-sat-secondary mt-1 uppercase tracking-wide">
+              {getFriendlyAction(score.suggestedAction)}
+            </p>
           </div>
         </div>
       </div>
@@ -130,9 +160,11 @@ export function RiskScoreCard({ score, onRecalculate, isLoading }: RiskScoreCard
                       : 'bg-amber-100 text-amber-800 border border-amber-200'
                     : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
                 }`}>
-                  {factor.code}
+                  {formatFactorCode(factor.code)}
                 </span>
-                <span className="text-slate-700 font-semibold">{factor.description}</span>
+                <span className="text-slate-700 font-semibold">
+                  {replaceTechnicalNames(factor.description)}
+                </span>
               </div>
               <span className={`font-extrabold text-sm tabular-nums ${
                 factor.score > 0 ? 'text-rose-600' : 'text-emerald-600'

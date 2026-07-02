@@ -113,8 +113,21 @@
    - Runs strict validation checks (proper RFC format, CURP, dates, legal names, and document-specific required fields).
    - If any required field is missing or format is malformed, rejects the upload immediately with status 400 (no database entry created, no manual inputs allowed).
    - If validation passes, validates that the original PDF file does not exceed 2MB. Then, runs local PDF compression via `pdf-lib` to strip metadata, optimize structural objects (saving 50-70% storage size) and preserve ALL pages intact.
-   - Saves the compressed PDF size in the database `fileSize` column and uploads the compressed PDF file to Supabase Storage using the original filename directly. Handles conflicts by prepending a timestamp prefix and resolves the public URL using Supabase's `getPublicUrl` method directly.
-   - Redesigned UI to remove all manual entry input forms, confirmation screens, and edit buttons. Displays AI-extracted fields as read-only and adds a direct link to view the uploaded PDF.
+   - Runs multi-document reconciliation: verifies that document RFC matches registered RFC and other documents exactly; strictly compares Legal Name (rejecting any mismatches but ignoring spaces, accents, punctuation, and special characters); warns on representative/address discrepancies.
+   - Saves the compressed PDF size in the database `fileSize` column along with the reconciliation status, error details, and warning logs. Uploads the compressed PDF file to Supabase Storage.
+   - Triggers auto-status transitions on every upload, marking files as `needs_update` if any document is expired, if CSF is not from the current month/year, or if SAT list check is >90 days old.
+   - Redesigned UI to remove all manual entry input forms, confirmation screens, and edit buttons. Displays AI-extracted fields as read-only, adds a direct link to view the uploaded PDF, shows color-coded reconciliation status badges (`✓ Matched`, `⚠️ Warning`, `✗ Mismatch`), and displays warning and error boxes detailing any mismatch reasons.
+   - Integrated a side-by-side Dossier Data Reconciliation Comparison Table mapping file definitions vs extracted values directly.
+   - Exposed a manual trigger API endpoint `POST /api/files/[id]/check-status` and added a header action button "Check Compliance Status" in the UI to run compliance checks and sync dossier status on demand.
+   - Centralized human-readable document label mappings via `getDocumentLabel(type)` (`articles_of_incorporation` -> "Articles of Incorporation", etc.) and custom fallback formatting.
+   - Centralized user-friendly error translations via `getErrorMessage(code)` mapping all technical compliance error codes to clear user-facing messages.
+   - Applied these centralized functions to ALL user-facing locations: Overall Assessment sidebar summaries, the Score tab breakdown, the Documents vault, warning list logs, error toast alerts, and modal dialogs to eliminate all technical underscores or codes.
+   - Refactored `reconcileDocumentUpload` to return JSON-serialized technical code objects and wrap server-side warning logs with `getDocumentLabel`.
+   - Added conditional visibility fields to schema and TypeScript File interfaces (e.g. `powerOfAttorneyRequired`, `controllingPartyRequired`).
+   - Implemented `runConditionalDetections` in `src/lib/conditional-detection.ts` executing automatic legal representative comparison (PoA detection) and shareholder/partners complexity keyword checks (Controlling Party detection).
+   - Configured the upload API to trigger conditional requirement evaluation immediately upon document database creation.
+   - Made the dropdown menu fully dynamic: initially shows 5 always-visible documents, and adds conditional options with yellow warning banners explaining why they are required when flags are active.
+   - Adjusted scoring index algorithm to apply the +15 pt missing penalty to conditional documents only when they are explicitly flag-required by the AI.
 
 ## Notes
 - Focus on Phase 8 (Deployment) next

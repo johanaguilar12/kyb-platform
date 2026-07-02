@@ -4,8 +4,9 @@ import React, { useEffect, useState, use } from 'react';
 import Link from 'next/link';
 import { StatusBadge } from '@/components/StatusBadge';
 import { SATSignals } from '@/components/SATSignals';
-import { RiskScoreCard } from '@/components/RiskScoreCard';
+import { RiskScoreCard, replaceTechnicalNames, getFriendlyAction } from '@/components/RiskScoreCard';
 import { AuditTable } from '@/components/AuditTable';
+import { getUserFriendlyError } from '@/lib/utils/error-messages';
 
 interface Document {
   id: string;
@@ -21,6 +22,9 @@ interface Document {
   confirmedAt?: string | null;
   url?: string | null;
   fileSize?: number | null;
+  reconciliationStatus?: string | null;
+  reconciliationErrors?: string[] | null;
+  reconciliationWarnings?: string[] | null;
 }
 
 interface SATListCheck {
@@ -61,6 +65,10 @@ interface FileData {
   satListChecks: SATListCheck[];
   riskScore: RiskScore | null;
   auditLogs: AuditLog[];
+  powerOfAttorneyRequired?: boolean | null;
+  powerOfAttorneyReason?: string | null;
+  controllingPartyRequired?: boolean | null;
+  controllingPartyReason?: string | null;
 }
 
 export default function FileDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -74,6 +82,7 @@ export default function FileDetailPage({ params }: { params: Promise<{ id: strin
   const [activeTab, setActiveTab] = useState<'overview' | 'documents' | 'sat' | 'score' | 'audit'>('overview');
   const [isSatChecking, setIsSatChecking] = useState(false);
   const [isScoring, setIsScoring] = useState(false);
+  const [isStatusChecking, setIsStatusChecking] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
 
   // Upload States
@@ -290,6 +299,29 @@ export default function FileDetailPage({ params }: { params: Promise<{ id: strin
     }
   };
 
+  const handleManualStatusCheck = async () => {
+    if (!fileData) return;
+    setIsStatusChecking(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/files/${fileData.id}/check-status`, {
+        method: 'POST',
+      });
+      const json = await res.json();
+      if (res.ok && json.success) {
+        alert('Manual compliance status checks ran successfully! File status and logs are up to date.');
+        await fetchFileData();
+      } else {
+        throw new Error(json.error || 'Failed to run manual check.');
+      }
+    } catch (err: any) {
+      console.error(err);
+      setError(`Compliance Status Check failed: ${err.message}`);
+    } finally {
+      setIsStatusChecking(false);
+    }
+  };
+
   const handleStatusTransition = async (newStatus: 'approved' | 'rejected') => {
     if (!fileData) return;
     setIsTransitioning(true);
@@ -345,6 +377,36 @@ export default function FileDetailPage({ params }: { params: Promise<{ id: strin
   if (!fileData) return null;
 
   const isHighRisk = fileData.riskScore?.level === 'high_risk';
+
+  const hasUploadedType = (type: string) => {
+    return fileData.documents.some(d => d.type === type && d.isActive);
+  };
+  const showPoA = fileData.powerOfAttorneyRequired === true || hasUploadedType('power_of_attorney');
+  const showControllingParty = fileData.controllingPartyRequired === true || hasUploadedType('controlling_party');
+
+  const getRequiredCount = () => {
+    let count = 5;
+    if (fileData.powerOfAttorneyRequired === true) count++;
+    if (fileData.controllingPartyRequired === true) count++;
+    return count;
+  };
+
+  const getUploadedRequiredCount = () => {
+    const requiredTypes = [
+      'tax_status_certificate',
+      'articles_of_incorporation',
+      'legal_representative_id',
+      'proof_of_address',
+      'manifestation_under_protest'
+    ];
+    if (fileData.powerOfAttorneyRequired === true) {
+      requiredTypes.push('power_of_attorney');
+    }
+    if (fileData.controllingPartyRequired === true) {
+      requiredTypes.push('controlling_party');
+    }
+    return fileData.documents.filter(d => d.isActive && requiredTypes.includes(d.type)).length;
+  };
 
   // Structure mapping for SAT signals display
   const satSignalsObject = fileData.satListChecks.length > 0 ? {
@@ -426,16 +488,24 @@ export default function FileDetailPage({ params }: { params: Promise<{ id: strin
             <div className="flex flex-wrap items-center gap-3">
               <button
                 onClick={handleSatCheck}
-                disabled={isSatChecking || isScoring}
-                className="inline-flex items-center justify-center px-4 py-2 text-xs font-bold border border-slate-350 text-sat-dark bg-slate-100 hover:bg-slate-200 rounded shadow-sm transition disabled:opacity-50 uppercase tracking-wider"
+                disabled={isSatChecking || isScoring || isStatusChecking}
+                className="inline-flex items-center justify-center px-4 py-2 text-xs font-bold border border-slate-350 text-sat-dark bg-slate-100 hover:bg-slate-200 rounded shadow-sm transition disabled:opacity-50 uppercase tracking-wider cursor-pointer"
               >
                 {isSatChecking ? 'Running SAT Check...' : 'Run SAT Compliance Check'}
               </button>
               
               <button
+                onClick={handleManualStatusCheck}
+                disabled={isSatChecking || isScoring || isStatusChecking}
+                className="inline-flex items-center justify-center px-4 py-2 text-xs font-bold border border-slate-350 text-sat-dark bg-slate-100 hover:bg-slate-200 rounded shadow-sm transition disabled:opacity-50 uppercase tracking-wider cursor-pointer"
+              >
+                {isStatusChecking ? 'Checking Expirations...' : 'Check Compliance Status'}
+              </button>
+              
+              <button
                 onClick={handleScoreRecalculate}
-                disabled={isSatChecking || isScoring}
-                className="inline-flex items-center justify-center px-4 py-2 text-xs font-bold bg-sat-primary hover:bg-blue-900 text-white rounded shadow-sm transition disabled:opacity-50 uppercase tracking-wider"
+                disabled={isSatChecking || isScoring || isStatusChecking}
+                className="inline-flex items-center justify-center px-4 py-2 text-xs font-bold bg-sat-primary hover:bg-blue-900 text-white rounded shadow-sm transition disabled:opacity-50 uppercase tracking-wider cursor-pointer"
               >
                 {isScoring ? 'Recalculating...' : 'Recalculate Score'}
               </button>
@@ -511,7 +581,7 @@ export default function FileDetailPage({ params }: { params: Promise<{ id: strin
                     <div className="flex items-center justify-between text-xs py-2 border-b border-slate-100">
                       <span className="text-sat-muted font-bold uppercase tracking-wider">Compliance Documents Uploaded</span>
                       <span className="font-bold text-sat-dark">
-                        {fileData.documents.filter(d => d.isActive).length} / 5 required
+                        {getUploadedRequiredCount()} / {getRequiredCount()} required
                       </span>
                     </div>
                     <div className="flex items-center justify-between text-xs py-2 border-b border-slate-100">
@@ -547,11 +617,13 @@ export default function FileDetailPage({ params }: { params: Promise<{ id: strin
                         <span className="text-xs uppercase font-bold text-sat-muted">PTS</span>
                       </div>
                       <p className="text-xs text-sat-dark mt-2 leading-relaxed font-semibold">
-                        {fileData.riskScore.explanation}
+                        {replaceTechnicalNames(fileData.riskScore.explanation)}
                       </p>
                       <div className="mt-4 pt-4 border-t border-slate-350 text-xs">
                         <span className="font-bold text-sat-muted block uppercase tracking-wider mb-1">System Action</span>
-                        <span className="font-bold text-sat-secondary uppercase tracking-wide">{fileData.riskScore.suggestedAction}</span>
+                        <span className="font-bold text-sat-secondary uppercase tracking-wide">
+                          {getFriendlyAction(fileData.riskScore.suggestedAction)}
+                        </span>
                       </div>
                     </div>
                   ) : (
@@ -574,6 +646,18 @@ export default function FileDetailPage({ params }: { params: Promise<{ id: strin
                 {/* Working PDF Upload Section */}
                 <form onSubmit={handleUploadSubmit} className="mt-4 p-4 border border-slate-305 rounded bg-slate-50 space-y-4">
                   <span className="font-bold text-[10px] text-sat-muted block uppercase tracking-widest">COMPLIANCE DOCUMENT UPLOAD CONSOLE</span>
+                  
+                  {fileData.powerOfAttorneyRequired === true && (
+                    <div className="p-3 bg-amber-50 border border-amber-300 text-amber-900 text-xs rounded font-semibold">
+                      Power of Attorney required: {fileData.powerOfAttorneyReason}
+                    </div>
+                  )}
+                  {fileData.controllingPartyRequired === true && (
+                    <div className="p-3 bg-amber-50 border border-amber-300 text-amber-900 text-xs rounded font-semibold">
+                      Additional ownership documentation required: {fileData.controllingPartyReason}
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
                     
                     {/* Document Type Dropdown */}
@@ -587,10 +671,17 @@ export default function FileDetailPage({ params }: { params: Promise<{ id: strin
                         onChange={(e) => setUploadDocType(e.target.value)}
                         className="block w-full px-2 py-1.5 text-xs bg-white border border-slate-300 rounded text-sat-dark font-medium"
                       >
-                        <option value="tax_status_certificate">Tax Status Certificate (CSF)</option>
+                        <option value="tax_status_certificate">Tax Status Certificate</option>
                         <option value="articles_of_incorporation">Articles of Incorporation</option>
                         <option value="legal_representative_id">Legal Representative ID</option>
                         <option value="proof_of_address">Proof of Address</option>
+                        <option value="manifestation_under_protest">Manifestation Under Protest</option>
+                        {showPoA && (
+                          <option value="power_of_attorney">Power of Attorney</option>
+                        )}
+                        {showControllingParty && (
+                          <option value="controlling_party">Controlling Party Information</option>
+                        )}
                       </select>
                     </div>
 
@@ -636,6 +727,84 @@ export default function FileDetailPage({ params }: { params: Promise<{ id: strin
                 </form>
               </div>
 
+              {/* Dossier Data Reconciliation comparison */}
+              {fileData.documents.length > 0 && (
+                <div className="mb-6 p-4 bg-slate-50 border border-slate-350 rounded">
+                  <h4 className="font-bold text-xs uppercase text-sat-primary tracking-wider mb-3">Dossier Data Reconciliation comparison</h4>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-xs border border-slate-300 bg-white">
+                      <thead>
+                        <tr className="bg-slate-100 border-b border-slate-300">
+                          <th className="px-3 py-2 text-left font-bold uppercase tracking-wider text-slate-700">Entity Field</th>
+                          <th className="px-3 py-2 text-left font-bold uppercase tracking-wider text-slate-700">Dossier Registered</th>
+                          <th className="px-3 py-2 text-left font-bold uppercase tracking-wider text-slate-700">Extracted from Documents</th>
+                          <th className="px-3 py-2 text-left font-bold uppercase tracking-wider text-slate-700">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200">
+                        {/* RFC Row */}
+                        <tr>
+                          <td className="px-3 py-2 font-bold text-slate-600">RFC</td>
+                          <td className="px-3 py-2 font-mono font-bold text-sat-dark">{fileData.rfc}</td>
+                          <td className="px-3 py-2 font-mono">
+                            {(() => {
+                              const csfDoc = fileData.documents.find(d => d.type === 'tax_status_certificate' && d.isActive);
+                              const artDoc = fileData.documents.find(d => d.type === 'articles_of_incorporation' && d.isActive);
+                              return csfDoc?.aiExtractedData?.rfc || artDoc?.aiExtractedData?.rfc || 'Not Uploaded';
+                            })()}
+                          </td>
+                          <td className="px-3 py-2 font-semibold">
+                            {(() => {
+                              const csfDoc = fileData.documents.find(d => d.type === 'tax_status_certificate' && d.isActive);
+                              const artDoc = fileData.documents.find(d => d.type === 'articles_of_incorporation' && d.isActive);
+                              const docRfc = csfDoc?.aiExtractedData?.rfc || artDoc?.aiExtractedData?.rfc;
+                              if (!docRfc) return <span className="text-slate-400 font-semibold italic">Pending Upload</span>;
+                              
+                              const normDoc = docRfc.replace(/[^A-Z0-9]/gi, '').toUpperCase();
+                              const normFile = fileData.rfc.replace(/[^A-Z0-9]/gi, '').toUpperCase();
+                              const matches = normDoc === normFile;
+                              return matches 
+                                ? <span className="text-sat-success">✓ Matches</span> 
+                                : <span className="text-sat-danger font-extrabold bg-rose-50 px-1 border border-rose-250">✗ Mismatch</span>;
+                            })()}
+                          </td>
+                        </tr>
+                        {/* Legal Name Row */}
+                        <tr>
+                          <td className="px-3 py-2 font-bold text-slate-600">Legal Name</td>
+                          <td className="px-3 py-2 font-bold text-sat-dark">{fileData.legalName}</td>
+                          <td className="px-3 py-2">
+                            {(() => {
+                              const csfDoc = fileData.documents.find(d => d.type === 'tax_status_certificate' && d.isActive);
+                              const artDoc = fileData.documents.find(d => d.type === 'articles_of_incorporation' && d.isActive);
+                              return csfDoc?.aiExtractedData?.legalName || artDoc?.aiExtractedData?.legalName || 'Not Uploaded';
+                            })()}
+                          </td>
+                          <td className="px-3 py-2 font-semibold">
+                            {(() => {
+                              const csfDoc = fileData.documents.find(d => d.type === 'tax_status_certificate' && d.isActive);
+                              const artDoc = fileData.documents.find(d => d.type === 'articles_of_incorporation' && d.isActive);
+                              const docName = csfDoc?.aiExtractedData?.legalName || artDoc?.aiExtractedData?.legalName;
+                              if (!docName) return <span className="text-slate-400 font-semibold italic">Pending Upload</span>;
+                              
+                              if (docName === fileData.legalName) {
+                                return <span className="text-sat-success">✓ Matches</span>;
+                              }
+                              
+                              // Check if matched or warning
+                              const hasWarning = fileData.documents.some(d => d.isActive && d.reconciliationStatus === 'warning');
+                              return hasWarning 
+                                ? <span className="text-sat-warning">⚠️ Spelling Warning</span>
+                                : <span className="text-sat-success">✓ Matches (Fuzzy)</span>;
+                            })()}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
               {fileData.documents.length === 0 ? (
                 <div className="border border-dashed border-slate-300 rounded p-8 text-center text-xs text-sat-muted font-semibold">
                   No documents have been uploaded to this vault.
@@ -672,9 +841,15 @@ export default function FileDetailPage({ params }: { params: Promise<{ id: strin
                               {doc.expirationDate && (
                                 <>
                                   <span>&bull;</span>
-                                  <span className={new Date(doc.expirationDate) < new Date() ? 'text-sat-danger font-extrabold' : ''}>
-                                    EXPIRES {new Date(doc.expirationDate).toLocaleDateString()}
-                                  </span>
+                                  {(() => {
+                                    const isExpired = new Date(doc.expirationDate) < new Date();
+                                    const isExpiringSoon = !isExpired && (new Date(doc.expirationDate).getTime() - new Date().getTime()) < 30 * 24 * 60 * 60 * 1000;
+                                    return (
+                                      <span className={isExpired ? 'text-sat-danger font-extrabold' : (isExpiringSoon ? 'text-sat-warning font-bold' : '')}>
+                                        EXPIRES {new Date(doc.expirationDate).toLocaleDateString()} {isExpired ? '(EXPIRED)' : (isExpiringSoon ? '(EXPIRING SOON)' : '')}
+                                      </span>
+                                    );
+                                  })()}
                                 </>
                               )}
                             </div>
@@ -682,9 +857,26 @@ export default function FileDetailPage({ params }: { params: Promise<{ id: strin
                         </div>
                         
                         <div className="flex items-center space-x-2">
-                          <span className={`inline-flex px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border bg-emerald-50 text-sat-success border-emerald-200`}>
-                            ✓ Confirmed
-                          </span>
+                          {doc.reconciliationStatus === 'matched' && (
+                            <span className="inline-flex px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border bg-emerald-50 text-sat-success border-emerald-200">
+                              ✓ Matched
+                            </span>
+                          )}
+                          {doc.reconciliationStatus === 'warning' && (
+                            <span className="inline-flex px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border bg-amber-50 text-sat-warning border-amber-200">
+                              ⚠️ Warning
+                            </span>
+                          )}
+                          {doc.reconciliationStatus === 'mismatch' && (
+                            <span className="inline-flex px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border bg-rose-50 text-sat-danger border-rose-250">
+                              ✗ Mismatch
+                            </span>
+                          )}
+                          {!doc.reconciliationStatus && (
+                            <span className="inline-flex px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border bg-slate-50 text-slate-500 border-slate-200">
+                              ✓ Confirmed
+                            </span>
+                          )}
                           <span className={`inline-flex px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${
                             doc.isActive 
                               ? 'bg-blue-50 text-sat-secondary border-blue-200' 
@@ -726,6 +918,34 @@ export default function FileDetailPage({ params }: { params: Promise<{ id: strin
                               })}
                             </div>
                           </div>
+                        </div>
+                      )}
+
+                      {/* Reconciliation Validation Messages */}
+                      {doc.isActive && doc.reconciliationErrors && doc.reconciliationErrors.length > 0 && (
+                        <div className="mt-3 p-3 bg-rose-50 border border-rose-350 text-rose-850 text-xs rounded font-semibold space-y-1">
+                          <span className="block uppercase text-[10px] tracking-wider text-sat-danger font-extrabold">Critical Reconciliation Errors:</span>
+                          {doc.reconciliationErrors.map((err, i) => {
+                            let displayMsg = err;
+                            try {
+                              const parsed = JSON.parse(err);
+                              if (parsed && parsed.code) {
+                                displayMsg = getUserFriendlyError(parsed.code, parsed.context);
+                              }
+                            } catch (e) {
+                              // Fallback to raw string
+                            }
+                            return <div key={i}>• {displayMsg}</div>;
+                          })}
+                        </div>
+                      )}
+
+                      {doc.isActive && doc.reconciliationWarnings && doc.reconciliationWarnings.length > 0 && (
+                        <div className="mt-3 p-3 bg-amber-50 border border-amber-300 text-amber-900 text-xs rounded font-semibold space-y-1">
+                          <span className="block uppercase text-[10px] tracking-wider text-sat-warning font-extrabold">Reconciliation Warnings:</span>
+                          {doc.reconciliationWarnings.map((warn, i) => (
+                            <div key={i}>• {warn}</div>
+                          ))}
                         </div>
                       )}
 

@@ -107,7 +107,10 @@ function getSchemaPromptForType(documentType: string): string {
   "legalRepresentative": "Name of legal representative",
   "legalRepresentativeComplete": true/false indicator,
   "shareholdersComplete": true/false indicator,
-  "controllingPartyComplete": true/false indicator
+  "controllingPartyComplete": true/false indicator,
+  "shareholdersCount": number of shareholders/partners,
+  "hasComplexOwnership": true/false indicator if structure is complex (uses trusts/fideicomisos, holdings, investment funds, SAPIs, subsidiaries, or corporate shareholders),
+  "ownershipReason": "Brief reason explaining the complexity level of the ownership structure"
 }`;
     case 'legal_representative_id':
       return `{
