@@ -1,22 +1,18 @@
-/**
- * The 8 mandatory document types required for a complete KYB folder (Expediente).
- */
-export type DocumentType =
+export type DocumentType = 
   | 'articles_of_incorporation'
   | 'legal_representative_id'
   | 'power_of_attorney'
   | 'proof_of_address'
   | 'rfc'
-  | 'csf'
+  | 'tax_status_certificate'
   | 'manifestation_under_protest'
   | 'controlling_party';
 
-/**
- * Represents a document uploaded to an Expediente.
- */
+export type DocumentValidity = 'valid' | 'expired' | 'missing';
+
 export interface Document {
   id: string;
-  expedienteId: string;
+  fileId: string;
   type: DocumentType;
   name: string;
   url?: string | null;
@@ -28,10 +24,11 @@ export interface Document {
   createdAt: Date;
 }
 
-/**
- * Status or results of a document validity validation.
- */
-export interface DocumentValidity {
-  isValid: boolean;
-  errors: string[];
+export interface CreateDocumentData {
+  fileId: string;
+  type: DocumentType;
+  name: string;
+  url?: string;
+  issueDate?: string;
+  expirationDate?: string;
 }

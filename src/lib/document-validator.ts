@@ -1,12 +1,17 @@
-import { Document, DocumentValidity, DocumentType } from '@/types/document.types';
+import { Document, DocumentType } from '@/types';
+
+export interface DocumentValidityResult {
+  isValid: boolean;
+  errors: string[];
+}
 
 /**
- * Validates a single document's metadata (e.g., expiration date, whether a CSF is from the current month).
+ * Validates a single document's metadata (e.g., expiration date, whether a tax status certificate is from the current month).
  *
  * @param document The document object to validate
  * @returns An object containing the validation state and any error messages
  */
-export function validateDocument(document: Document): DocumentValidity {
+export function validateDocument(document: Document): DocumentValidityResult {
   // Stub implementation
   return {
     isValid: true,

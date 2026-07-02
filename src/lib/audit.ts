@@ -1,4 +1,4 @@
-import { AuditAction, AuditLog } from '@/types/audit.types';
+import { AuditAction, AuditLog } from '@/types';
 
 /**
  * Creates a compliance audit entry in the audit database.
@@ -10,7 +10,7 @@ import { AuditAction, AuditLog } from '@/types/audit.types';
 export async function logAuditAction(params: {
   action: AuditAction;
   actor: string;
-  expedienteId?: string | null;
+  fileId?: string | null;
   beforeState?: Record<string, any> | null;
   afterState?: Record<string, any> | null;
   reason?: string | null;
@@ -18,12 +18,12 @@ export async function logAuditAction(params: {
   // Stub implementation
   return {
     id: 'stub-audit-id',
-    expedienteId: params.expedienteId ?? null,
+    fileId: params.fileId ?? undefined,
     action: params.action,
     actor: params.actor,
     timestamp: new Date(),
-    beforeState: params.beforeState ?? null,
-    afterState: params.afterState ?? null,
-    reason: params.reason ?? null,
+    beforeState: params.beforeState ?? undefined,
+    afterState: params.afterState ?? undefined,
+    reason: params.reason ?? undefined,
   };
 }

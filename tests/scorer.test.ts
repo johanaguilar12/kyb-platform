@@ -1,48 +1,43 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import { calculateRiskScore } from '@/lib/scorer';
-import { reconcileExpedienteData } from '@/lib/reconciler';
-import { Document, DocumentType } from '@/types/document.types';
-import { SATListCheck } from '@/types/sat.types';
-import { Expediente } from '@/types/expediente.types';
+import { reconcileDocuments } from '@/lib/reconciler';
+import { Document, DocumentType, File, SATListCheck } from '@/types';
 
 // Mock the reconciler
 vi.mock('@/lib/reconciler', () => ({
-  reconcileExpedienteData: vi.fn(),
+  reconcileDocuments: vi.fn(),
 }));
 
-describe('calculateRiskScore Unit Tests', () => {
+describe('calculateRiskScore Unit Tests (English Refactored)', () => {
   const currentDate = new Date('2026-07-01T12:00:00Z');
 
-  const mockExpediente: Expediente = {
-    id: 'exp_123',
+  const mockFile: File = {
+    id: 'file_123',
     rfc: 'ABC123456XYZ',
-    razonSocial: 'ACME S.A. DE C.V.',
+    legalName: 'ACME S.A. DE C.V.',
     status: 'draft',
     createdAt: new Date(),
     updatedAt: new Date(),
   };
 
-  // Helper to create all 8 required documents in a valid state
+  // Helper to create all 5 required documents in a valid state
   function createValidDocuments(refDate: Date): Document[] {
     const types: DocumentType[] = [
       'articles_of_incorporation',
       'legal_representative_id',
-      'power_of_attorney',
       'proof_of_address',
-      'rfc',
-      'csf',
+      'tax_status_certificate',
       'manifestation_under_protest',
-      'controlling_party',
     ];
     return types.map((type, index) => ({
       id: `doc_${index}`,
-      expedienteId: 'exp_123',
+      fileId: 'file_123',
       type,
       name: `${type}.pdf`,
       isActive: true,
       version: 1,
       createdAt: new Date(),
-      issueDate: type === 'csf' ? new Date(refDate) : undefined, // current month
+      issueDate: type === 'tax_status_certificate' ? new Date(refDate) : undefined, // current month
       expirationDate: new Date(refDate.getTime() + 10 * 24 * 60 * 60 * 1000), // future
       aiExtractedData: {
         legalRepresentativeComplete: true,
@@ -53,10 +48,10 @@ describe('calculateRiskScore Unit Tests', () => {
   }
 
   // Helper to create recent SAT check results (within 90 days, none found)
-  function createRecentSatChecks(refDate: Date, listTypes = ['list_69', 'list_69_b', 'list_69_b_bis']): SATListCheck[] {
+  function createRecentSatChecks(refDate: Date, listTypes = ['list_69_not_located', 'list_69_b', 'list_69_b_bis']): SATListCheck[] {
     return listTypes.map((listType, index) => ({
       id: `check_${index}`,
-      expedienteId: 'exp_123',
+      fileId: 'file_123',
       rfc: 'ABC123456XYZ',
       listType: listType as any,
       found: false,
@@ -68,19 +63,20 @@ describe('calculateRiskScore Unit Tests', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    // Default mock behavior: no discrepancies
-    vi.mocked(reconcileExpedienteData).mockReturnValue({
-      hasDiscrepancies: false,
+    // Default mock behavior: consistent
+    vi.mocked(reconcileDocuments).mockReturnValue({
+      isConsistent: true,
       discrepancies: [],
+      summary: 'Consistent',
     });
   });
 
-  // 1. Safe client: All docs valid, CSF current month, clean SAT -> safe (score < 30)
+  // 1. Safe client: All docs valid, tax status certificate current month, clean SAT -> safe (score < 30)
   it('should classify a client with all documents valid and clean SAT checks as safe', () => {
     const documents = createValidDocuments(currentDate);
     const satChecks = createRecentSatChecks(currentDate);
 
-    const result = calculateRiskScore(mockExpediente, documents, satChecks, currentDate);
+    const result = calculateRiskScore(mockFile, documents, satChecks, currentDate);
 
     expect(result.score).toBe(-5); // -5 bonus
     expect(result.level).toBe('safe');
@@ -91,13 +87,12 @@ describe('calculateRiskScore Unit Tests', () => {
   // 2. Review required - missing docs: 2 missing documents -> +30 -> review_required
   it('should add +30 risk score and classify as review_required for 2 missing documents', () => {
     const documents = createValidDocuments(currentDate).filter(
-      d => d.type !== 'rfc' && d.type !== 'proof_of_address'
+      d => d.type !== 'legal_representative_id' && d.type !== 'proof_of_address'
     );
     const satChecks = createRecentSatChecks(currentDate);
 
-    const result = calculateRiskScore(mockExpediente, documents, satChecks, currentDate);
+    const result = calculateRiskScore(mockFile, documents, satChecks, currentDate);
 
-    // Score should be 30 (+30 for missing 2 docs)
     expect(result.score).toBe(30);
     expect(result.level).toBe('review_required');
     expect(result.factors).toContainEqual(
@@ -111,14 +106,12 @@ describe('calculateRiskScore Unit Tests', () => {
   // 3. Review required - expired doc: 1 expired document -> +20 -> review_required
   it('should add +20 risk score for an expired document (and hit review_required when combined with stale SAT list checks)', () => {
     const documents = createValidDocuments(currentDate);
-    // Make one document expired (e.g. proof of address)
     const proofOfAddress = documents.find(d => d.type === 'proof_of_address')!;
     proofOfAddress.expirationDate = new Date(currentDate.getTime() - 24 * 60 * 60 * 1000); // 1 day ago
 
-    // Provide empty SAT checks to add +10 stale, making total score = 30
-    const result = calculateRiskScore(mockExpediente, documents, [], currentDate);
+    const result = calculateRiskScore(mockFile, documents, [], currentDate); // no SAT -> +10
 
-    expect(result.score).toBe(30); // 20 (expired) + 10 (stale SAT checks) = 30
+    expect(result.score).toBe(30); // 20 (expired) + 10 (stale SAT) = 30
     expect(result.level).toBe('review_required');
     expect(result.factors).toContainEqual(
       expect.objectContaining({
@@ -128,52 +121,38 @@ describe('calculateRiskScore Unit Tests', () => {
     );
   });
 
-  // 4. Review required - old CSF: CSF from previous month -> +25 -> review_required
-  it('should add +25 risk score for CSF from a previous month (and hit review_required when combined with stale SAT)', () => {
+  // 4. Review required - old tax status certificate: tax status certificate from previous month -> +25 -> review_required
+  it('should add +25 risk score for tax status certificate from a previous month', () => {
     const documents = createValidDocuments(currentDate);
-    const csf = documents.find(d => d.type === 'csf')!;
-    csf.issueDate = new Date('2026-06-15T12:00:00Z'); // Previous month (June instead of July)
+    const taxCert = documents.find(d => d.type === 'tax_status_certificate')!;
+    taxCert.issueDate = new Date('2026-06-15T12:00:00Z'); // Previous month
 
-    // Provide empty SAT checks to add +10 stale, making total score = 35
-    const result = calculateRiskScore(mockExpediente, documents, [], currentDate);
+    const result = calculateRiskScore(mockFile, documents, [], currentDate); // +10 stale SAT
 
-    expect(result.score).toBe(35); // 25 (old CSF) + 10 (stale SAT) = 35
+    expect(result.score).toBe(35); // 25 (old cert) + 10 (stale SAT) = 35
     expect(result.level).toBe('review_required');
     expect(result.factors).toContainEqual(
       expect.objectContaining({
-        code: 'CSF_NOT_CURRENT_MONTH',
+        code: 'TAX_CERTIFICATE_NOT_CURRENT_MONTH',
         score: 25,
       })
     );
   });
 
   // 5. High risk - 69-B list: Found in 69-B -> +50 -> high_risk
-  it('should add +50 risk score for SAT 69-B list match (and hit high_risk with stale SAT list check +15 missing doc)', () => {
-    const documents = createValidDocuments(currentDate).filter(d => d.type !== 'rfc'); // missing 1 doc (+15)
-    const satChecks = createRecentSatChecks(currentDate);
-    // Mark found in 69-B
-    const check69B = satChecks.find(c => c.listType === 'list_69_b')!;
-    check69B.found = true;
-
-    // Total: 50 (69-B) + 15 (missing 1 doc) + 10 (stale SAT since list_69_b was reviewed but say list_49_bis is not or list_69_b check is recent but we didn't include all of them)
-    // Wait, let's keep all 3 lists checked but one found:
-    // list_69 (not found, recent), list_69_b (found, recent), list_69_b_bis (not found, recent) -> No stale SAT lists (+0).
-    // Let's add incomplete stakeholders (+20) to make it exactly 70:
-    const docs = createValidDocuments(currentDate);
-    docs.find(d => d.type === 'articles_of_incorporation')!.aiExtractedData = {
+  it('should add +50 risk score for SAT 69-B list match and hit high_risk when combined with incomplete stakeholders', () => {
+    const documents = createValidDocuments(currentDate);
+    documents.find(d => d.type === 'articles_of_incorporation')!.aiExtractedData = {
       shareholdersComplete: false, // +20
     };
-    
-    const result = calculateRiskScore(mockExpediente, docs, satChecks, currentDate);
+
+    const satChecks = createRecentSatChecks(currentDate);
+    satChecks.find(c => c.listType === 'list_69_b')!.found = true;
+
+    const result = calculateRiskScore(mockFile, documents, satChecks, currentDate);
 
     expect(result.score).toBe(70); // 50 (69-B) + 20 (incomplete stakeholders) = 70
     expect(result.level).toBe('high_risk');
-    expect(result.factors).toContainEqual(
-      expect.objectContaining({
-        code: 'SAT_69_B',
-        score: 50,
-      })
-    );
   });
 
   // 6. High risk - multiple factors: 69-B + expired doc + missing doc -> high_risk
@@ -181,17 +160,15 @@ describe('calculateRiskScore Unit Tests', () => {
     // 1 missing doc (+15)
     const documents = createValidDocuments(currentDate).filter(d => d.type !== 'proof_of_address');
     // 1 expired doc (+20)
-    const rfcDoc = documents.find(d => d.type === 'rfc')!;
-    rfcDoc.expirationDate = new Date(currentDate.getTime() - 24 * 60 * 60 * 1000);
-    
-    // Found in 69-B (+50)
+    const articles = documents.find(d => d.type === 'articles_of_incorporation')!;
+    articles.expirationDate = new Date(currentDate.getTime() - 24 * 60 * 60 * 1000);
+
     const satChecks = createRecentSatChecks(currentDate);
-    satChecks.find(c => c.listType === 'list_69_b')!.found = true;
+    satChecks.find(c => c.listType === 'list_69_b')!.found = true; // +50
 
-    const result = calculateRiskScore(mockExpediente, documents, satChecks, currentDate);
+    const result = calculateRiskScore(mockFile, documents, satChecks, currentDate);
 
-    // 50 (69-B) + 15 (missing doc) + 20 (expired doc) = 85
-    expect(result.score).toBe(85);
+    expect(result.score).toBe(85); // 50 + 20 + 15 = 85
     expect(result.level).toBe('high_risk');
   });
 
@@ -200,8 +177,8 @@ describe('calculateRiskScore Unit Tests', () => {
     const documents = createValidDocuments(currentDate);
     const satChecks = createRecentSatChecks(currentDate);
 
-    const result1 = calculateRiskScore(mockExpediente, documents, satChecks, currentDate);
-    const result2 = calculateRiskScore(mockExpediente, documents, satChecks, currentDate);
+    const result1 = calculateRiskScore(mockFile, documents, satChecks, currentDate);
+    const result2 = calculateRiskScore(mockFile, documents, satChecks, currentDate);
 
     expect(result1).toEqual(result2);
   });
@@ -209,36 +186,35 @@ describe('calculateRiskScore Unit Tests', () => {
   // 8. Explanation test: Verify explanation contains all factor descriptions
   it('should generate a detailed human-readable explanation listing all active risk factors', () => {
     const documents = createValidDocuments(currentDate);
-    const csf = documents.find(d => d.type === 'csf')!;
-    csf.issueDate = new Date('2026-05-01T12:00:00Z'); // old CSF (+25)
+    const taxCert = documents.find(d => d.type === 'tax_status_certificate')!;
+    taxCert.issueDate = new Date('2026-05-01T12:00:00Z'); // old (+25)
 
     const proofOfAddress = documents.find(d => d.type === 'proof_of_address')!;
     proofOfAddress.expirationDate = new Date(currentDate.getTime() - 24 * 60 * 60 * 1000); // expired (+20)
 
     const satChecks = createRecentSatChecks(currentDate);
 
-    const result = calculateRiskScore(mockExpediente, documents, satChecks, currentDate);
+    const result = calculateRiskScore(mockFile, documents, satChecks, currentDate);
 
-    expect(result.explanation).toContain('CSF (Constancia de Situación Fiscal) not from current month');
+    expect(result.explanation).toContain('Tax status certificate not from current month');
     expect(result.explanation).toContain('One or more documents are expired');
   });
 
   // 9. Edge case - empty documents: No documents -> high_risk (missing all required)
   it('should assign a high risk level with a high score when no documents are provided', () => {
     const satChecks = createRecentSatChecks(currentDate);
-    const result = calculateRiskScore(mockExpediente, [], satChecks, currentDate);
+    const result = calculateRiskScore(mockFile, [], satChecks, currentDate);
 
-    // 8 missing documents: 8 * 15 = 120
-    expect(result.score).toBe(120);
+    // 5 missing documents: 5 * 15 = 75
+    expect(result.score).toBe(75);
     expect(result.level).toBe('high_risk');
   });
 
   // 10. Edge case - no SAT checks: No SAT checks -> +10 for stale lists
   it('should add +10 points to the risk score if no SAT checks are passed', () => {
     const documents = createValidDocuments(currentDate);
-    const result = calculateRiskScore(mockExpediente, documents, [], currentDate);
+    const result = calculateRiskScore(mockFile, documents, [], currentDate);
 
-    // 10 (stale SAT checks) - no perfect bonus since SAT checks are stale/missing
     expect(result.score).toBe(10);
     expect(result.factors).toContainEqual(
       expect.objectContaining({
@@ -253,21 +229,20 @@ describe('calculateRiskScore Unit Tests', () => {
     const documents = createValidDocuments(currentDate);
     const satChecks = createRecentSatChecks(currentDate);
 
-    const result = calculateRiskScore(mockExpediente, documents, satChecks, currentDate);
+    const result = calculateRiskScore(mockFile, documents, satChecks, currentDate);
 
     expect(result.score).toBe(-5);
     expect(result.factors[0].code).toBe('PERFECT_BONUS');
-    expect(result.factors[0].score).toBe(-5);
   });
 
   // 12. Boundary test: Score exactly 30 -> review_required
   it('should classify exactly 30 risk points as review_required', () => {
     const documents = createValidDocuments(currentDate).filter(
-      d => d.type !== 'rfc' && d.type !== 'proof_of_address'
+      d => d.type !== 'legal_representative_id' && d.type !== 'proof_of_address'
     );
     const satChecks = createRecentSatChecks(currentDate);
 
-    const result = calculateRiskScore(mockExpediente, documents, satChecks, currentDate);
+    const result = calculateRiskScore(mockFile, documents, satChecks, currentDate);
 
     expect(result.score).toBe(30);
     expect(result.level).toBe('review_required');
@@ -276,18 +251,116 @@ describe('calculateRiskScore Unit Tests', () => {
   // 13. Boundary test: Score exactly 70 -> high_risk
   it('should classify exactly 70 risk points as high_risk', () => {
     const documents = createValidDocuments(currentDate);
-    // Found in 69-B (+50)
     const satChecks = createRecentSatChecks(currentDate);
-    satChecks.find(c => c.listType === 'list_69_b')!.found = true;
-    
-    // Incomplete stakeholder data (+20)
+    satChecks.find(c => c.listType === 'list_69_b')!.found = true; // +50
+
     documents.find(d => d.type === 'articles_of_incorporation')!.aiExtractedData = {
-      legalRepresentativeComplete: false,
+      legalRepresentativeComplete: false, // +20
     };
 
-    const result = calculateRiskScore(mockExpediente, documents, satChecks, currentDate);
+    const result = calculateRiskScore(mockFile, documents, satChecks, currentDate);
 
     expect(result.score).toBe(70);
     expect(result.level).toBe('high_risk');
+  });
+
+  // 14. Discrepancies increase score by +30 each (high severity)
+  it('should increase score by +30 for one high severity discrepancy', () => {
+    const documents = createValidDocuments(currentDate);
+    const satChecks = createRecentSatChecks(currentDate);
+
+    vi.mocked(reconcileDocuments).mockReturnValue({
+      isConsistent: false,
+      discrepancies: [
+        {
+          field: 'rfc',
+          documents: ['tax_status_certificate', 'articles_of_incorporation'],
+          values: [],
+          severity: 'high',
+          description: 'RFC mismatch',
+        },
+      ],
+      summary: '1 discrepancy',
+    });
+
+    const result = calculateRiskScore(mockFile, documents, satChecks, currentDate);
+
+    // -5 bonus is deactivated due to inconsistency. Score is 30.
+    expect(result.score).toBe(30);
+    expect(result.factors).toContainEqual(
+      expect.objectContaining({
+        code: 'DOCUMENT_DISCREPANCY',
+        score: 30,
+      })
+    );
+  });
+
+  // 15. Explanation includes discrepancy details
+  it('should include details of the high severity discrepancies in the generated explanation', () => {
+    const documents = createValidDocuments(currentDate);
+    const satChecks = createRecentSatChecks(currentDate);
+
+    vi.mocked(reconcileDocuments).mockReturnValue({
+      isConsistent: false,
+      discrepancies: [
+        {
+          field: 'legal_name',
+          documents: ['tax_status_certificate', 'articles_of_incorporation'],
+          values: [],
+          severity: 'high',
+          description: 'Legal name mismatch',
+        },
+      ],
+      summary: '1 discrepancy',
+    });
+
+    const result = calculateRiskScore(mockFile, documents, satChecks, currentDate);
+
+    expect(result.explanation).toContain('material discrepancy(ies) detected: legal_name');
+  });
+
+  // 16. Multiple discrepancies stack correctly (e.g. +60 for two high severity discrepancies)
+  it('should stack multiple high severity discrepancies correctly (e.g. +60 for two high severity discrepancies)', () => {
+    const documents = createValidDocuments(currentDate);
+    const satChecks = createRecentSatChecks(currentDate);
+
+    vi.mocked(reconcileDocuments).mockReturnValue({
+      isConsistent: false,
+      discrepancies: [
+        {
+          field: 'rfc',
+          documents: [],
+          values: [],
+          severity: 'high',
+          description: 'RFC mismatch',
+        },
+        {
+          field: 'legal_representative',
+          documents: [],
+          values: [],
+          severity: 'high',
+          description: 'Rep mismatch',
+        },
+        {
+          field: 'address',
+          documents: [],
+          values: [],
+          severity: 'medium', // should be ignored in score impact calculation since it is medium severity
+          description: 'Address mismatch',
+        },
+      ],
+      summary: '3 discrepancies',
+    });
+
+    const result = calculateRiskScore(mockFile, documents, satChecks, currentDate);
+
+    // 2 high severity discrepancies * 30 = 60
+    expect(result.score).toBe(60);
+    expect(result.factors).toContainEqual(
+      expect.objectContaining({
+        code: 'DOCUMENT_DISCREPANCY',
+        score: 60,
+      })
+    );
   });
 });

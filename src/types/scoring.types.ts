@@ -1,26 +1,16 @@
-/**
- * Classification level based on the computed risk score:
- * - score < 30 -> safe
- * - 30 <= score < 70 -> review_required
- * - score >= 70 -> high_risk
- */
 export type RiskLevel = 'safe' | 'review_required' | 'high_risk';
 
-/**
- * An individual factor contributing to the overall risk score.
- */
 export interface RiskFactor {
   code: string;
   score: number;
   description: string;
+  category: 'critical' | 'high' | 'medium' | 'low' | 'informational';
+  metadata?: Record<string, any>;
 }
 
-/**
- * The final risk scoring result computed for an Expediente.
- */
 export interface RiskScore {
   id: string;
-  expedienteId: string;
+  fileId: string;
   level: RiskLevel;
   score: number;
   factors: RiskFactor[];

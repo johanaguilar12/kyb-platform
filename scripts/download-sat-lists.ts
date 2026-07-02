@@ -2,7 +2,13 @@ import { prisma } from '../src/lib/prisma';
 import { downloadSATList, cacheSATList } from '../src/lib/sat-client';
 import { SATListType } from '../src/types/sat.types';
 
-const listTypes: SATListType[] = ['list_69', 'list_69_b', 'list_69_b_bis', 'list_49_bis'];
+const listTypes: SATListType[] = [
+  'list_69_not_located',
+  'list_69_b',
+  'list_69_b_bis',
+  'csd_revoked',
+  'article_49_bis',
+];
 
 async function main() {
   console.log('--- STARTING SAT LIST DOWNLOAD & CACHE JOB ---');

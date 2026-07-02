@@ -9,27 +9,27 @@ datasource db {
   provider = "postgresql"
 }
 
-model Expediente {
-  id            String         @id @default(cuid())
-  rfc           String         @unique
-  razonSocial   String         @map("razon_social")
-  status        String         // 'draft' | 'pending_review' | 'approved' | 'rejected' | 'needs_update'
-  createdAt     DateTime       @default(now()) @map("created_at")
-  updatedAt     DateTime       @updatedAt @map("updated_at")
+model File {
+  id              String         @id @default(cuid())
+  rfc             String         @unique
+  legalName       String         @map("legal_name")
+  status          String         // 'draft' | 'pending_review' | 'approved' | 'rejected' | 'needs_update'
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
   
-  documents     Document[]
-  satListChecks SATListCheck[]
-  riskScore     RiskScore?
-  auditLogs     AuditLog[]
+  documents       Document[]
+  satListChecks   SATListCheck[]
+  riskScore       RiskScore?
+  auditLogs       AuditLog[]
 
-  @@map("expedientes")
+  @@map("files")
 }
 
 model Document {
   id              String     @id @default(cuid())
-  expedienteId    String     @map("expediente_id")
-  expediente      Expediente @relation(fields: [expedienteId], references: [id], onDelete: Cascade)
-  type            String     // 'articles_of_incorporation' | 'legal_representative_id' | 'power_of_attorney' | 'proof_of_address' | 'rfc' | 'csf' | 'manifestation_under_protest' | 'controlling_party'
+  fileId          String     @map("file_id")
+  file            File       @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  type            String     // 'articles_of_incorporation' | 'legal_representative_id' | 'power_of_attorney' | 'proof_of_address' | 'rfc' | 'tax_status_certificate' | 'manifestation_under_protest' | 'controlling_party'
   name            String
   url             String?
   aiExtractedData Json?      @map("ai_extracted_data")
@@ -39,34 +39,34 @@ model Document {
   version         Int        @default(1)
   createdAt       DateTime   @default(now()) @map("created_at")
 
-  @@index([expedienteId])
+  @@index([fileId])
   @@index([type])
   @@map("documents")
 }
 
 model SATListCheck {
   id           String     @id @default(cuid())
-  expedienteId String     @map("expediente_id")
-  expediente   Expediente @relation(fields: [expedienteId], references: [id], onDelete: Cascade)
+  fileId       String     @map("file_id")
+  file         File       @relation(fields: [fileId], references: [id], onDelete: Cascade)
   rfc          String
-  listType     String     @map("list_type") // 'list_69' | 'list_69_b' | 'list_69_b_bis' | 'list_49_bis'
+  listType     String     @map("list_type")
   found        Boolean
   checkedAt    DateTime   @default(now()) @map("checked_at")
   source       String
   reference    String
 
-  @@index([expedienteId])
+  @@index([fileId])
   @@index([rfc])
   @@map("sat_list_checks")
 }
 
 model RiskScore {
   id              String     @id @default(cuid())
-  expedienteId    String     @unique @map("expediente_id")
-  expediente      Expediente @relation(fields: [expedienteId], references: [id], onDelete: Cascade)
+  fileId          String     @unique @map("file_id")
+  file            File       @relation(fields: [fileId], references: [id], onDelete: Cascade)
   level           String     // 'safe' | 'review_required' | 'high_risk'
   score           Int
-  factors         Json       // Array of RiskFactor
+  factors         Json
   explanation     String
   suggestedAction String     @map("suggested_action")
   calculatedAt    DateTime   @default(now()) @map("calculated_at")
@@ -76,16 +76,16 @@ model RiskScore {
 
 model AuditLog {
   id           String      @id @default(cuid())
-  expedienteId String?     @map("expediente_id")
-  expediente   Expediente? @relation(fields: [expedienteId], references: [id], onDelete: SetNull)
-  action       String      // AuditAction
+  fileId       String?     @map("file_id")
+  file         File?       @relation(fields: [fileId], references: [id], onDelete: SetNull)
+  action       String
   actor        String
   timestamp    DateTime    @default(now())
   beforeState  Json?       @map("before_state")
   afterState   Json?       @map("after_state")
   reason       String?
 
-  @@index([expedienteId])
+  @@index([fileId])
   @@index([action])
   @@map("audit_logs")
 }

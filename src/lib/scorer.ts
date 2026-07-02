@@ -1,94 +1,165 @@
-import { Expediente } from '@/types/expediente.types';
-import { Document, DocumentType } from '@/types/document.types';
-import { SATListCheck } from '@/types/sat.types';
-import { RiskScore, RiskFactor, RiskLevel } from '@/types/scoring.types';
-import { reconcileExpedienteData } from './reconciler';
+import { File, Document, SATListCheck, RiskScore, RiskFactor, RiskLevel, DocumentType } from '@/types';
+import { reconcileDocuments } from './reconciler';
 
 /**
- * Calculates the risk score for a given Expediente based on its documents,
+ * Helper to generate human-readable explanation of the risk factors.
+ */
+function generateExplanation(factors: RiskFactor[]): string {
+  const activeFactors = factors.filter(f => f.score !== 0 || f.code === 'CSD_REVOKED' || f.code === 'ARTICLE_49_BIS_NOT_VERIFIABLE');
+  if (activeFactors.length === 1 && activeFactors[0].code === 'PERFECT_BONUS') {
+    return 'The company is classified as safe. All documents are valid and up-to-date.';
+  }
+  if (activeFactors.length === 0) {
+    return 'The company is classified as safe. No risk factors identified.';
+  }
+  const descriptions = activeFactors.map(f => f.description).join(', ');
+  return `Issues identified: ${descriptions}.`;
+}
+
+/**
+ * Helper to generate suggested compliance action based on the risk level.
+ */
+function generateSuggestedAction(level: RiskLevel, factors: RiskFactor[]): string {
+  if (level === 'high_risk') {
+    return 'Block approval immediately. Escalate to compliance officer for formal review.';
+  }
+  if (level === 'review_required') {
+    return 'Perform manual review of the flagged items and request updates if necessary.';
+  }
+  return 'Proceed with standard approval.';
+}
+
+/**
+ * Calculates the risk score for a given File based on its documents,
  * SAT compliance checks, data discrepancies, and completeness.
  *
  * This function is 100% pure and deterministic.
  *
- * @param expediente The company's folder metadata (including RFC and corporate name)
- * @param documents List of active documents associated with the Expediente
+ * @param file The company's folder metadata
+ * @param documents List of active documents associated with the File
  * @param satChecks List of recent SAT blacklist checks
- * @param currentDate Reference date for expiration/validity checks (defaults to now)
- * @returns The computed RiskScore including level, score, contributing factors, and suggested actions.
+ * @param currentDate Reference date for expiration/validity checks
+ * @returns The computed RiskScore
  */
 export function calculateRiskScore(
-  expediente: Expediente,
+  file: File,
   documents: Document[],
   satChecks: SATListCheck[],
   currentDate: Date = new Date()
 ): RiskScore {
   const factors: RiskFactor[] = [];
+  let score = 0;
 
-  // 1. SAT blacklists (+50, +40, +30)
-  const isFoundIn69B = satChecks.some(c => c.listType === 'list_69_b' && c.found);
+  // 1. SAT checks (+50, +40, +30)
+  const isFoundIn69B = satChecks.some(c => (c.listType === 'list_69_b' && c.found) || (c as any).signals?.list_69b);
   if (isFoundIn69B) {
+    score += 50;
     factors.push({
-      code: 'SAT_69_B',
+      code: 'FOUND_IN_69B',
       score: 50,
-      description: 'Found in SAT list 69-B CFF (Presumed non-existent operations)',
+      description: 'RFC found in Art. 69-B CFF list (EFOS)',
+      category: 'critical',
     });
   }
 
-  const isFoundIn69BBis = satChecks.some(c => c.listType === 'list_69_b_bis' && c.found);
+  const isFoundIn69BBis = satChecks.some(c => (c.listType === 'list_69_b_bis' && c.found) || (c as any).signals?.list_69b_bis);
   if (isFoundIn69BBis) {
+    score += 40;
     factors.push({
-      code: 'SAT_69_B_BIS',
+      code: 'FOUND_IN_69B_BIS',
       score: 40,
-      description: 'Found in SAT list 69-B Bis CFF (Definitive non-existent operations)',
+      description: 'RFC found in Art. 69-B Bis CFF list (Definitive EFOS)',
+      category: 'critical',
     });
   }
 
-  const isFoundIn69 = satChecks.some(c => c.listType === 'list_69' && c.found);
+  const isFoundIn69 = satChecks.some(
+    c => (c.listType === 'list_69_not_located' && c.found) || (c as any).signals?.not_located
+  );
   if (isFoundIn69) {
+    score += 30;
     factors.push({
-      code: 'SAT_69',
+      code: 'FOUND_IN_69_NOT_LOCATED',
       score: 30,
-      description: 'Found in SAT list 69 CFF (Non-compliant taxpayers)',
+      description: 'RFC found in Art. 69 CFF list (Non-compliant/Unlocated taxpayers)',
+      category: 'high',
     });
   }
 
-  // 2. Material discrepancy between documents (+30)
-  const reconciliation = reconcileExpedienteData(documents, {
-    rfc: expediente.rfc,
-    razonSocial: expediente.razonSocial,
-  });
-  if (reconciliation.hasDiscrepancies) {
+  // Revoked CSD Check (informational / risk signal)
+  const isCsdRevoked = satChecks.some(
+    c => (c.listType === 'csd_revoked' && c.found) || (c as any).signals?.csd_revoked
+  );
+  if (isCsdRevoked) {
     factors.push({
-      code: 'DISCREPANCY',
-      score: 30,
-      description: 'Material discrepancy between documents',
+      code: 'CSD_REVOKED',
+      score: 0,
+      description: 'RFC found in revoked CSD list (risk signal, unspecified cause - may include Art. 49-Bis but not confirmed)',
+      category: 'low',
     });
   }
 
-  // 3. CSF not from current month (+25)
-  const csfDoc = documents.find(d => d.type === 'csf' && d.isActive);
-  let csfNotCurrentMonth = false;
-  if (csfDoc) {
-    if (csfDoc.issueDate) {
-      const issueYear = csfDoc.issueDate.getFullYear();
-      const issueMonth = csfDoc.issueDate.getMonth();
+  // Article 49 Bis not verifiable check
+  const isArt49BisNotVerifiable =
+    (satChecks as any).art_49_bis_status === 'not_verifiable_with_current_public_sources' ||
+    satChecks.some(c => c.listType === 'article_49_bis' && (c as any).status === 'no_public_dataset');
+  if (isArt49BisNotVerifiable) {
+    factors.push({
+      code: 'ARTICLE_49_BIS_NOT_VERIFIABLE',
+      score: 0,
+      description: 'Article 49-Bis subcontracting status is not verifiable with current public sources',
+      category: 'low',
+    });
+  }
+
+  // 2. Material discrepancy between documents (+30 per high severity discrepancy)
+  const reconciliation = reconcileDocuments(documents);
+  if (reconciliation.discrepancies.length > 0) {
+    const highSeverityCount = reconciliation.discrepancies.filter(d => d.severity === 'high').length;
+    const impact = highSeverityCount * 30;
+
+    if (impact > 0) {
+      score += impact;
+      factors.push({
+        code: 'DOCUMENT_DISCREPANCY',
+        score: impact,
+        description: `${highSeverityCount} material discrepancy(ies) detected: ${reconciliation.discrepancies
+          .filter(d => d.severity === 'high')
+          .map(d => d.field)
+          .join(', ')}`,
+        category: 'high',
+      });
+    }
+  }
+
+  // 3. Tax Status Certificate not from current month (+25)
+  const taxCertDoc = documents.find(d => d.type === 'tax_status_certificate' && d.isActive);
+  let taxCertNotCurrentMonth = false;
+  if (taxCertDoc) {
+    if (taxCertDoc.issueDate) {
+      const issueYear = taxCertDoc.issueDate.getFullYear();
+      const issueMonth = taxCertDoc.issueDate.getMonth();
       const currentYear = currentDate.getFullYear();
       const currentMonth = currentDate.getMonth();
-      
+
       if (issueYear !== currentYear || issueMonth !== currentMonth) {
-        csfNotCurrentMonth = true;
+        taxCertNotCurrentMonth = true;
+        score += 25;
         factors.push({
-          code: 'CSF_NOT_CURRENT_MONTH',
+          code: 'TAX_CERTIFICATE_NOT_CURRENT_MONTH',
           score: 25,
-          description: 'CSF (Constancia de Situación Fiscal) not from current month',
+          description: 'Tax status certificate not from current month',
+          category: 'medium',
         });
       }
     } else {
-      csfNotCurrentMonth = true;
+      taxCertNotCurrentMonth = true;
+      score += 25;
       factors.push({
-        code: 'CSF_NOT_CURRENT_MONTH',
+        code: 'TAX_CERTIFICATE_NOT_CURRENT_MONTH',
         score: 25,
-        description: 'CSF (Constancia de Situación Fiscal) missing issue date',
+        description: 'Tax status certificate missing issue date',
+        category: 'medium',
       });
     }
   }
@@ -98,32 +169,33 @@ export function calculateRiskScore(
     d => d.isActive && d.expirationDate && d.expirationDate.getTime() < currentDate.getTime()
   );
   if (hasExpired) {
+    score += 20;
     factors.push({
       code: 'EXPIRED_DOCUMENT',
       score: 20,
       description: 'One or more documents are expired',
+      category: 'medium',
     });
   }
 
   // 5. Per missing required document (+15 per missing)
-  const requiredTypes: DocumentType[] = [
+  const requiredDocs: DocumentType[] = [
     'articles_of_incorporation',
     'legal_representative_id',
-    'power_of_attorney',
     'proof_of_address',
-    'rfc',
-    'csf',
+    'tax_status_certificate',
     'manifestation_under_protest',
-    'controlling_party',
   ];
-  const missingRequired = requiredTypes.filter(
+  const missingRequired = requiredDocs.filter(
     type => !documents.some(d => d.type === type && d.isActive)
   );
   if (missingRequired.length > 0) {
+    score += 15 * missingRequired.length;
     factors.push({
       code: 'MISSING_REQUIRED_DOCUMENT',
       score: 15 * missingRequired.length,
       description: `Missing required documents: ${missingRequired.join(', ')}`,
+      category: 'medium',
     });
   }
 
@@ -139,15 +211,17 @@ export function calculateRiskScore(
     );
   });
   if (hasIncompleteStakeholders) {
+    score += 20;
     factors.push({
       code: 'INCOMPLETE_STAKEHOLDERS',
       score: 20,
       description: 'Incomplete legal representative, shareholders, or controlling party data',
+      category: 'medium',
     });
   }
 
   // 7. SAT lists not reviewed in last 90 days (+10)
-  const requiredListTypes = ['list_69', 'list_69_b', 'list_69_b_bis'];
+  const requiredListTypes = ['list_69_not_located', 'list_69_b', 'list_69_b_bis'];
   const ninetyDaysMs = 90 * 24 * 60 * 60 * 1000;
   const hasRecentCheck = (type: string) => {
     return satChecks.some(check => {
@@ -158,71 +232,45 @@ export function calculateRiskScore(
   };
   const satNotReviewedIn90Days = !requiredListTypes.every(type => hasRecentCheck(type));
   if (satNotReviewedIn90Days) {
+    score += 10;
     factors.push({
       code: 'SAT_NOT_REVIEWED',
       score: 10,
       description: 'SAT lists not reviewed in last 90 days',
+      category: 'low',
     });
   }
 
-  // 8. All documents valid and up-to-date bonus (-5)
-  // Bonus conditions: no missing documents, no expired documents, CSF from current month, no discrepancies, no incomplete stakeholders.
+  // 8. Perfect bonus (-5)
   const hasNoDocIssues =
     missingRequired.length === 0 &&
     !hasExpired &&
-    !csfNotCurrentMonth &&
-    !reconciliation.hasDiscrepancies &&
+    !taxCertNotCurrentMonth &&
+    reconciliation.isConsistent &&
     !hasIncompleteStakeholders;
 
-  const hasNoOtherIssues = factors.length === 0;
+  const hasNoOtherIssues = factors.filter(f => f.score > 0).length === 0;
 
   if (hasNoDocIssues && hasNoOtherIssues) {
+    score -= 5;
     factors.push({
       code: 'PERFECT_BONUS',
       score: -5,
       description: 'All documents valid and up-to-date (bonus)',
+      category: 'informational',
     });
   }
 
-  // Calculate final score
-  const score = factors.reduce((sum, f) => sum + f.score, 0);
-
-  // Map to RiskLevel
-  let level: RiskLevel = 'safe';
-  if (score >= 70) {
-    level = 'high_risk';
-  } else if (score >= 30) {
-    level = 'review_required';
-  }
-
-  // Generate explanation and suggested actions
-  let explanation = '';
-  let suggestedAction = '';
-
-  if (level === 'safe') {
-    explanation = 'The company is classified as safe. No major risk factors were identified.';
-    if (score < 0) {
-      explanation += ' All required documents are valid and up-to-date.';
-    }
-    suggestedAction = 'Proceed with standard approval.';
-  } else if (level === 'review_required') {
-    const factorDescriptions = factors.map(f => f.description).join(', ');
-    explanation = `Review required due to: ${factorDescriptions}.`;
-    suggestedAction = 'Perform manual review of the flagged items and request updates if necessary.';
-  } else {
-    const factorDescriptions = factors.map(f => f.description).join(', ');
-    explanation = `High risk detected! Blocking issues: ${factorDescriptions}.`;
-    suggestedAction = 'Block approval immediately. Escalate to compliance officer for formal review.';
-  }
+  const level: RiskLevel = score >= 70 ? 'high_risk' : score >= 30 ? 'review_required' : 'safe';
 
   return {
-    id: `score_${expediente.id}_${currentDate.getTime()}`,
-    expedienteId: expediente.id,
+    id: `score_${file.id}_${currentDate.getTime()}`,
+    fileId: file.id,
     level,
     score,
     factors,
-    explanation,
-    suggestedAction,
+    explanation: generateExplanation(factors),
+    suggestedAction: generateSuggestedAction(level, factors),
     calculatedAt: currentDate,
   };
 }

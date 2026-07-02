@@ -3,10 +3,11 @@ import { SATCheckResult, SATListCheck, SATListType } from '@/types/sat.types';
 import * as self from './sat-client';
 
 export const SOURCE_URLS: Record<SATListType, string> = {
-  list_69: 'http://omawww.sat.gob.mx/cifras_sat/Documents/ListCompleta69.csv',
-  list_69_b: 'http://omawww.sat.gob.mx/cifras_sat/Documents/Listado_Completo_69-B.csv',
-  list_69_b_bis: 'http://omawww.sat.gob.mx/cifras_sat/Documents/Listado_Completo_69-B.csv', // filter definitive from same CSV
-  list_49_bis: 'http://omawww.sat.gob.mx/cifras_sat/Documents/Listado_Completo_49-Bis.csv',
+  list_69_not_located: 'https://wu1agsprosta001.blob.core.windows.net/agsc-publicaciones/Datos_abiertos/Documents_AGR/No_localizados.csv',
+  list_69_b: 'https://wu1agsprosta001.blob.core.windows.net/agsc-publicaciones/Datos_abiertos/Documents_AGAFF/Listado_completo_69-B.csv',
+  list_69_b_bis: 'https://wu1agsprosta001.blob.core.windows.net/agsc-publicaciones/Datos_abiertos/Documents_AGGC/Listado_69_B_Bis_Completo.csv',
+  csd_revoked: 'https://wu1agsprosta001.blob.core.windows.net/agsc-publicaciones/Datos_abiertos/Documents_AGR/CSDsinefectos.csv',
+  article_49_bis: '', // No consolidated public dataset available
 };
 
 const RFC_REGEX = /^[A-Z&Ñ]{3,4}\d{6}[A-Z\d]{3}$/i;
@@ -17,17 +18,39 @@ const RFC_REGEX = /^[A-Z&Ñ]{3,4}\d{6}[A-Z\d]{3}$/i;
  *
  * @param rfc The RFC to search for
  * @param prisma The Prisma Client instance
- * @returns Summary of checks across all 4 lists
+ * @returns Summary of checks across all 5 lists
  */
 export async function checkRfcInSatLists(
   rfc: string,
   prisma: PrismaClient
 ): Promise<SATCheckResult & { results: SATListCheck[] }> {
-  const listTypes: SATListType[] = ['list_69', 'list_69_b', 'list_69_b_bis', 'list_49_bis'];
+  const listTypes: SATListType[] = [
+    'list_69_not_located',
+    'list_69_b',
+    'list_69_b_bis',
+    'csd_revoked',
+    'article_49_bis',
+  ];
   const checks: SATListCheck[] = [];
   const normalizedRfc = rfc.trim().toUpperCase();
 
   for (const listType of listTypes) {
+    if (listType === 'article_49_bis') {
+      checks.push({
+        id: `check_${listType}_${Date.now()}`,
+        fileId: 'temp_file',
+        rfc: normalizedRfc,
+        listType,
+        found: false,
+        checkedAt: new Date(),
+        source: '',
+        reference: `${listType}_list`,
+        status: 'no_public_dataset',
+        reason: 'Article 49-Bis does not have a consolidated public dataset. Manual verification or Cumplimiento Opinion is required.',
+      });
+      continue;
+    }
+
     let cache = await prisma.sATListCache.findUnique({
       where: { listType },
     });
@@ -60,7 +83,7 @@ export async function checkRfcInSatLists(
 
     checks.push({
       id: `check_${listType}_${Date.now()}`,
-      expedienteId: 'temp_expediente', // Will be reconciled with the real expediente ID in the API
+      fileId: 'temp_file',
       rfc: normalizedRfc,
       listType,
       found,
@@ -70,14 +93,36 @@ export async function checkRfcInSatLists(
     });
   }
 
-  const isBlacklisted = checks.some(c => c.found);
+  const not_located = checks.some(c => c.listType === 'list_69_not_located' && c.found);
+  const list_69b = checks.some(c => c.listType === 'list_69_b' && c.found);
+  const list_69b_bis = checks.some(c => c.listType === 'list_69_b_bis' && c.found);
+  const csd_revoked = checks.some(c => c.listType === 'csd_revoked' && c.found);
+
+  // Article 49 Bis status mapping
+  const foundIn49Bis = checks.some(c => c.listType === 'article_49_bis' && c.found);
+  const art_49_bis_status = foundIn49Bis 
+    ? 'verified_non_compliant' 
+    : 'not_verifiable_with_current_public_sources';
+
+  const recommendation = (list_69b || list_69b_bis)
+    ? 'Block approval immediately due to blacklisted taxpayer record.'
+    : (not_located || csd_revoked)
+      ? 'Requires manual compliance verification.'
+      : 'Proceed with standard approval.';
 
   return {
-    checkedAt: new Date(),
     rfc: normalizedRfc,
-    isBlacklisted,
+    signals: {
+      not_located,
+      list_69b,
+      list_69b_bis,
+      csd_revoked,
+    },
+    art_49_bis_status,
     checks,
     results: checks, // compatibility field
+    checkedAt: new Date(),
+    recommendation,
   };
 }
 
@@ -86,6 +131,9 @@ export async function checkRfcInSatLists(
  */
 export async function downloadSATList(listType: SATListType): Promise<string[]> {
   const url = SOURCE_URLS[listType];
+  if (!url) {
+    throw new Error(`No download URL defined for list type ${listType}`);
+  }
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`Failed to fetch SAT list from ${url}. HTTP Status: ${response.status}`);

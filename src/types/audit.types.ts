@@ -1,27 +1,20 @@
-/**
- * The types of actions recorded in the compliance audit log.
- */
-export type AuditAction =
-  | 'CREATE_EXPEDIENTE'
-  | 'UPDATE_EXPEDIENTE_STATUS'
-  | 'UPLOAD_DOCUMENT'
-  | 'REPLACE_DOCUMENT'
-  | 'DELETE_DOCUMENT'
-  | 'RUN_SAT_CHECK'
-  | 'CALCULATE_RISK_SCORE'
-  | 'MANUAL_OVERRIDE'
-  | 'SYSTEM_AUTO_TRANSITION';
+export type AuditAction = 
+  | 'create'
+  | 'update'
+  | 'delete'
+  | 'approve'
+  | 'reject'
+  | 'score_calculated'
+  | 'document_uploaded'
+  | 'sat_check_performed';
 
-/**
- * Represents an entry in the compliance audit log for tracking system actions.
- */
 export interface AuditLog {
   id: string;
-  expedienteId?: string | null;
+  fileId?: string;
   action: AuditAction;
-  actor: string; // e.g., user email or 'SYSTEM'
+  actor: string;
   timestamp: Date;
-  beforeState?: Record<string, any> | null;
-  afterState?: Record<string, any> | null;
-  reason?: string | null;
+  beforeState?: Record<string, any>;
+  afterState?: Record<string, any>;
+  reason?: string;
 }

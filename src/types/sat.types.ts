@@ -1,32 +1,42 @@
-/**
- * Types of SAT fiscal blacklists and compliance lists to check.
- */
-export type SATListType =
-  | 'list_69'        // Non-compliant taxpayers (CFF 69)
-  | 'list_69_b'      // Presumed non-existent operations (CFF 69-B)
-  | 'list_69_b_bis'  // Definitive non-existent operations (CFF 69-B Bis)
-  | 'list_49_bis';   // Subcontracting (CFF 49 Bis)
+export type SATListType = 
+  | 'list_69_not_located'
+  | 'list_69_b'
+  | 'list_69_b_bis'
+  | 'csd_revoked'
+  | 'article_49_bis';
 
-/**
- * Result of a single check against a specific SAT list.
- */
 export interface SATListCheck {
   id: string;
-  expedienteId: string;
+  fileId: string;
   rfc: string;
   listType: SATListType;
   found: boolean;
   checkedAt: Date;
   source: string;
   reference: string;
+  status?: 'completed' | 'unavailable' | 'no_public_dataset';
+  reason?: string;
+  metadata?: Record<string, any>;
 }
 
-/**
- * Overall check results summary for a given RFC.
- */
 export interface SATCheckResult {
-  checkedAt: Date;
   rfc: string;
-  isBlacklisted: boolean;
+  signals: {
+    not_located: boolean;
+    list_69b: boolean;
+    list_69b_bis: boolean;
+    csd_revoked: boolean;
+  };
+  art_49_bis_status: 'not_verifiable_with_current_public_sources' | 'verified_compliant' | 'verified_non_compliant';
   checks: SATListCheck[];
+  checkedAt: Date;
+  recommendation: string;
+}
+
+export interface SATListCache {
+  id: string;
+  listType: SATListType;
+  data: string[];
+  downloadedAt: Date;
+  source: string;
 }
