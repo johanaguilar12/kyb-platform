@@ -1,6 +1,6 @@
 # Project Progress
 
-## Current Phase: Phase 5 - API Endpoints
+## Current Phase: Phase 6 - Frontend UI
 
 ## Phases Overview
 
@@ -35,12 +35,12 @@
 - [x] Write tests (9 tests)
 - [x] Integrate with scorer
 
-### Phase 5: API Endpoints 🔄
-- [ ] /api/files (CRUD)
-- [ ] /api/documents (CRUD + AI extraction)
-- [ ] /api/sat-check (SAT queries)
-- [ ] /api/score (calculate score)
-- [ ] Implement audit logging
+### Phase 5: API Endpoints ✅
+- [x] /api/files (CRUD)
+- [x] /api/documents (CRUD + AI extraction)
+- [x] /api/sat-check (SAT queries)
+- [x] /api/score (calculate score)
+- [x] Implement audit logging
 
 ### Phase 6: Frontend UI ⏳
 - [ ] Dashboard page
@@ -95,9 +95,14 @@
    - Integrated discrepancy scoring into `calculateRiskScore` (+30 per high severity mismatch).
    - Added 9 tests in `reconciler.test.ts` and 3 integration tests in `scorer.test.ts`.
 
+5. **API Endpoints**:
+   - Created CRUD Route Handlers for `files` and `documents` with strict Zod schema validation.
+   - Built dynamic `sat-check` route that performs compliance blacklist queries, caches them in the database, and logs `SATListCheck` entries.
+   - Developed `score` route that recalculates risk scores, updates database records, auto-transitions file status (`needs_update`, `rejected`), and registers audit logs.
+   - Configured Prisma 7 with the `@prisma/adapter-pg` PostgreSQL driver adapter and a fallback connection string for seamless build compilation.
+
 ## Notes
-- Focus on Phase 4 (reconciliation) next
-- Tests are mandatory for all business logic
-- SAT integration uses real data
-- Audit log is required for compliance
+- Focus on Phase 6 (Frontend UI) next
+- All components should use unified Tailwind and shadcn/ui components
+- Audit log view must be visible in UI for compliance
 - All code must remain in English

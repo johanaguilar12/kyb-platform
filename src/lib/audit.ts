@@ -1,3 +1,4 @@
+import { prisma } from './prisma';
 import { AuditAction, AuditLog } from '@/types';
 
 /**
@@ -15,15 +16,24 @@ export async function logAuditAction(params: {
   afterState?: Record<string, any> | null;
   reason?: string | null;
 }): Promise<AuditLog> {
-  // Stub implementation
+  const log = await prisma.auditLog.create({
+    data: {
+      fileId: params.fileId ?? undefined,
+      action: params.action,
+      actor: params.actor,
+      beforeState: params.beforeState ?? undefined,
+      afterState: params.afterState ?? undefined,
+      reason: params.reason ?? undefined,
+    },
+  });
   return {
-    id: 'stub-audit-id',
-    fileId: params.fileId ?? undefined,
-    action: params.action,
-    actor: params.actor,
-    timestamp: new Date(),
-    beforeState: params.beforeState ?? undefined,
-    afterState: params.afterState ?? undefined,
-    reason: params.reason ?? undefined,
+    id: log.id,
+    fileId: log.fileId ?? undefined,
+    action: log.action as AuditAction,
+    actor: log.actor,
+    timestamp: log.timestamp,
+    beforeState: (log.beforeState as Record<string, any>) ?? undefined,
+    afterState: (log.afterState as Record<string, any>) ?? undefined,
+    reason: log.reason ?? undefined,
   };
 }

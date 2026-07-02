@@ -1,23 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { z } from 'zod';
+import { logAuditAction } from '@/lib/audit';
+import { createFileSchema } from '@/lib/validators';
+import { ZodError } from 'zod';
 
-const createFileSchema = z.object({
-  rfc: z.string().min(12).max(13),
-  legalName: z.string().min(1),
-});
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
     const files = await prisma.file.findMany({
       include: {
         riskScore: true,
-        documents: true,
+      },
+      orderBy: {
+        createdAt: 'desc',
       },
     });
 
     return NextResponse.json({ success: true, data: files });
   } catch (error: any) {
+    console.error('Failed to get files:', error);
     return NextResponse.json(
       { success: false, error: error.message || 'Database error' },
       { status: 500 }
@@ -32,17 +34,40 @@ export async function POST(request: NextRequest) {
 
     const file = await prisma.file.create({
       data: {
-        rfc: validated.rfc,
+        rfc: validated.rfc.toUpperCase(),
         legalName: validated.legalName,
         status: 'draft',
       },
     });
 
+    // Log the file creation in Audit Log
+    await logAuditAction({
+      action: 'create',
+      actor: 'SYSTEM_USER', // Actor can be customized later, but SYSTEM_USER is a safe default
+      fileId: file.id,
+      afterState: file,
+      reason: 'Initial file creation',
+    });
+
     return NextResponse.json({ success: true, data: file });
   } catch (error: any) {
+    console.error('Failed to create file:', error);
+    if (error instanceof ZodError) {
+      return NextResponse.json(
+        { success: false, error: 'Validation error', details: error.issues },
+        { status: 400 }
+      );
+    }
+    // Handle uniqueness constraint violation for RFC
+    if (error.code === 'P2002') {
+      return NextResponse.json(
+        { success: false, error: 'A file with this RFC already exists.' },
+        { status: 409 }
+      );
+    }
     return NextResponse.json(
-      { success: false, error: error.message || 'Invalid data' },
-      { status: 400 }
+      { success: false, error: error.message || 'Database error' },
+      { status: 500 }
     );
   }
 }
