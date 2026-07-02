@@ -88,7 +88,7 @@
 
 ## AI Integration
 
-Use OpenAI GPT-4o mini for:
+Use Geminis API for:
 - Extract structured data from Tax Status Certificate PDF (RFC, legal name, issue date)
 - Extract data from Articles of Incorporation
 - Validate document content

@@ -26,6 +26,7 @@ export const createDocumentSchema = z.object({
   url: z.string().url().optional().nullable(),
   issueDate: z.string().datetime().optional().nullable(),
   expirationDate: z.string().datetime().optional().nullable(),
+  textContent: z.string().optional().nullable(),
 });
 
 export const satCheckSchema = z.object({

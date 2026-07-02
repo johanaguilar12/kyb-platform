@@ -3,10 +3,10 @@ import { SATCheckResult, SATListCheck, SATListType } from '@/types/sat.types';
 import * as self from './sat-client';
 
 export const SOURCE_URLS: Record<SATListType, string> = {
-  list_69_not_located: 'https://wu1agsprosta001.blob.core.windows.net/agsc-publicaciones/Datos_abiertos/Documents_AGR/No_localizados.csv',
-  list_69_b: 'https://wu1agsprosta001.blob.core.windows.net/agsc-publicaciones/Datos_abiertos/Documents_AGAFF/Listado_completo_69-B.csv',
-  list_69_b_bis: 'https://wu1agsprosta001.blob.core.windows.net/agsc-publicaciones/Datos_abiertos/Documents_AGGC/Listado_69_B_Bis_Completo.csv',
-  csd_revoked: 'https://wu1agsprosta001.blob.core.windows.net/agsc-publicaciones/Datos_abiertos/Documents_AGR/CSDsinefectos.csv',
+  list_69_not_located: process.env.SAT_LIST_69_URL || 'https://wu1agsprosta001.blob.core.windows.net/agsc-publicaciones/Datos_abiertos/Documents_AGR/No_localizados.csv',
+  list_69_b: process.env.SAT_LIST_69B_URL || 'https://wu1agsprosta001.blob.core.windows.net/agsc-publicaciones/Datos_abiertos/Documents_AGAFF/Listado_completo_69-B.csv',
+  list_69_b_bis: process.env.SAT_LIST_69B_BIS_URL || 'https://wu1agsprosta001.blob.core.windows.net/agsc-publicaciones/Datos_abiertos/Documents_AGGC/Listado_69_B_Bis_Completo.csv',
+  csd_revoked: process.env.SAT_LIST_CSD_URL || 'https://wu1agsprosta001.blob.core.windows.net/agsc-publicaciones/Datos_abiertos/Documents_AGR/CSDsinefectos.csv',
   article_49_bis: '', // No consolidated public dataset available
 };
 

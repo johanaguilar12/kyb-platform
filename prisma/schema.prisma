@@ -26,18 +26,22 @@ model File {
 }
 
 model Document {
-  id              String     @id @default(cuid())
-  fileId          String     @map("file_id")
-  file            File       @relation(fields: [fileId], references: [id], onDelete: Cascade)
-  type            String     // 'articles_of_incorporation' | 'legal_representative_id' | 'power_of_attorney' | 'proof_of_address' | 'rfc' | 'tax_status_certificate' | 'manifestation_under_protest' | 'controlling_party'
-  name            String
-  url             String?
-  aiExtractedData Json?      @map("ai_extracted_data")
-  issueDate       DateTime?  @map("issue_date")
-  expirationDate  DateTime?  @map("expiration_date")
-  isActive        Boolean    @default(true) @map("is_active")
-  version         Int        @default(1)
-  createdAt       DateTime   @default(now()) @map("created_at")
+  id                  String     @id @default(cuid())
+  fileId              String     @map("file_id")
+  file                File       @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  type                String     // 'articles_of_incorporation' | 'legal_representative_id' | 'power_of_attorney' | 'proof_of_address' | 'rfc' | 'tax_status_certificate' | 'manifestation_under_protest' | 'controlling_party'
+  name                String
+  url                 String?
+  aiExtractedData     Json?      @map("ai_extracted_data")
+  pdfHash             String?    @map("pdf_hash")
+  issueDate           DateTime?  @map("issue_date")
+  expirationDate      DateTime?  @map("expiration_date")
+  isActive            Boolean    @default(true) @map("is_active")
+  version             Int        @default(1)
+  confirmationStatus  String     @default("pending") @map("confirmation_status")
+  confirmedAt         DateTime?  @map("confirmed_at")
+  fileSize            Int?       @map("file_size")
+  createdAt           DateTime   @default(now()) @map("created_at")
 
   @@index([fileId])
   @@index([type])

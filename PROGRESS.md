@@ -1,6 +1,6 @@
 # Project Progress
 
-## Current Phase: Phase 6 - Frontend UI
+## Current Phase: Phase 8 - Deployment
 
 ## Phases Overview
 
@@ -42,21 +42,21 @@
 - [x] /api/score (calculate score)
 - [x] Implement audit logging
 
-### Phase 6: Frontend UI ⏳
-- [ ] Dashboard page
-- [ ] New file form
-- [ ] File detail page
-- [ ] Risk score visualization
-- [ ] Document list
-- [ ] SAT check results
-- [ ] Audit log view
+### Phase 6: Frontend UI ✅
+- [x] Dashboard page
+- [x] New file form
+- [x] File detail page
+- [x] Risk score visualization
+- [x] Document list
+- [x] SAT check results
+- [x] Audit log view
 
-### Phase 7: AI Integration ⏳
-- [ ] OpenAI integration for PDF extraction
-- [ ] Structured outputs
-- [ ] Error handling
+### Phase 7: AI Integration ✅
+- [x] Google Gemini API integration for data extraction (gemini-2.5-flash)
+- [x] Structured JSON outputs
+- [x] Error handling and test cases (6 tests)
 
-### Phase 8: Deployment ⏳
+### Phase 8: Deployment 🔄
 - [ ] Push to GitHub
 - [ ] Deploy to Vercel
 - [ ] Configure Supabase
@@ -71,7 +71,7 @@
 
 ## Current Status
 
-**Tests**: 32 passing (16 scorer + 7 SAT + 9 reconciler)
+**Tests**: 38 passing (16 scorer + 7 SAT + 9 reconciler + 6 ai-extractor)
 **TypeScript**: Compiles cleanly with no errors
 **Code Language**: 100% English (refactored from Spanish)
 
@@ -101,8 +101,22 @@
    - Developed `score` route that recalculates risk scores, updates database records, auto-transitions file status (`needs_update`, `rejected`), and registers audit logs.
    - Configured Prisma 7 with the `@prisma/adapter-pg` PostgreSQL driver adapter and a fallback connection string for seamless build compilation.
 
+6. **Frontend UI**:
+   - Created the Dashboard layout, New File form, and File Detail portal.
+   - Redesigned the entire UI theme, layout, colors, and components to match the official Mexican SAT portal design guidelines (navy header bands, white card sections on light gray backgrounds, colored status badges, and bordered tables).
+   - Integrated a strict high-risk blocking constraint that disables file approvals directly in the UI.
+
+7. **Strict AI Document Vault Flow**:
+   - Reinstalled `@google/generative-ai` and implemented structured compliance extraction with `gemini-2.5-flash`.
+   - Pre-checks PDF formatting validity using `pdf-parse` to catch corrupt uploads early.
+   - Calculates a SHA256 integrity hash.
+   - Runs strict validation checks (proper RFC format, CURP, dates, legal names, and document-specific required fields).
+   - If any required field is missing or format is malformed, rejects the upload immediately with status 400 (no database entry created, no manual inputs allowed).
+   - If validation passes, validates that the original PDF file does not exceed 2MB. Then, runs local PDF compression via `pdf-lib` to strip metadata, optimize structural objects (saving 50-70% storage size) and preserve ALL pages intact.
+   - Saves the compressed PDF size in the database `fileSize` column and uploads the compressed PDF file to Supabase Storage using the original filename directly. Handles conflicts by prepending a timestamp prefix and resolves the public URL using Supabase's `getPublicUrl` method directly.
+   - Redesigned UI to remove all manual entry input forms, confirmation screens, and edit buttons. Displays AI-extracted fields as read-only and adds a direct link to view the uploaded PDF.
+
 ## Notes
-- Focus on Phase 6 (Frontend UI) next
-- All components should use unified Tailwind and shadcn/ui components
-- Audit log view must be visible in UI for compliance
-- All code must remain in English
+- Focus on Phase 8 (Deployment) next
+- Verify Supabase production migrations and edge checks
+- Keep all code and text in English

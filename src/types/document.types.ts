@@ -17,10 +17,14 @@ export interface Document {
   name: string;
   url?: string | null;
   aiExtractedData?: Record<string, any> | null;
+  pdfHash?: string | null;
   issueDate?: Date | null;
   expirationDate?: Date | null;
   isActive: boolean;
   version: number;
+  confirmationStatus: string;
+  confirmedAt?: Date | null;
+  fileSize?: number | null;
   createdAt: Date;
 }
 
